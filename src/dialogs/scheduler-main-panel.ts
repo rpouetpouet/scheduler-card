@@ -46,6 +46,8 @@ import '../components/scheduler-collapsible-section';
 import '../components/scheduler-settings-row';
 import '../components/scheduler-combo-selector';
 
+type ActionDialogTarget = { mode: 'add' } | { mode: 'change'; index: number };
+
 @customElement('scheduler-main-panel')
 export class SchedulerMainPanel extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
@@ -218,17 +220,18 @@ export class SchedulerMainPanel extends LitElement {
 
   _renderActionConfig() {
     const slot: Timeslot = { ...this.schedule.entries[this.selectedEntry!].slots[this.selectedSlot!] };
-    const action = slot.actions.length ? slot.actions[0] : undefined;
-    if (!action)
-      return html`
-        <div>
-          <ha-button appearance="plain" @click=${this._showActionDialog}>
-            <ha-icon slot="start" icon="mdi:plus"></ha-icon>
-            ${localize('ui.panel.editor.add_action', this.hass)}
-          </ha-button>
-        </div>
-      `;
+    return html`
+      ${slot.actions.map((action, idx) => this._renderSingleAction(action, idx))}
+      <div class="action-add">
+        <ha-button appearance="plain" @click=${(ev: Event) => this._showActionDialog(ev, { mode: 'add' })}>
+          <ha-icon slot="start" icon="mdi:plus"></ha-icon>
+          ${localize('ui.panel.editor.add_action', this.hass)}
+        </ha-button>
+      </div>
+    `;
+  }
 
+  _renderSingleAction(action: Action, actionIdx: number) {
     const config = actionConfig(action, this.config.customize, this.hass);
     const domain = config.target?.domain || computeDomain(action.service);
 
@@ -236,7 +239,8 @@ export class SchedulerMainPanel extends LitElement {
       isDefined(config?.target?.entity_id) ||
       this.schedule.entries[this.selectedEntry!].slots.some(
         (e) =>
-          e.actions.length && isDefined(actionConfig(e.actions[0], this.config.customize, this.hass)?.target?.entity_id)
+          e.actions[actionIdx] &&
+          isDefined(actionConfig(e.actions[actionIdx], this.config.customize, this.hass)?.target?.entity_id)
       );
 
     if (config === undefined) return html``;
@@ -266,7 +270,7 @@ export class SchedulerMainPanel extends LitElement {
 
         <ha-dropdown
           slot="contextMenu"
-          @wa-select=${this._actionItemOptionsClick}
+          @wa-select=${(ev: CustomEvent) => this._actionItemOptionsClick(ev, actionIdx)}
           @wa-after-hide=${(ev: Event) => {
         ((ev.target as HTMLElement).firstElementChild as HTMLElement).blur();
       }}
@@ -293,7 +297,7 @@ export class SchedulerMainPanel extends LitElement {
                       .config=${this.config}
                       .domain=${domain}
                       .filterFunc=${(stateObj: HassEntity) => (config.supported_features ? ((stateObj.attributes.supported_features || 0) & config.supported_features) > 0 : true)}
-                      @value-changed=${this._selectEntity}
+                      @value-changed=${(ev: CustomEvent) => this._selectEntity(ev, actionIdx)}
                       .value=${[action.target?.entity_id || []].flat()}
                       ?multiple=${true}
                       ?disabled=${hasFixedEntity}
@@ -322,7 +326,7 @@ export class SchedulerMainPanel extends LitElement {
                         <ha-checkbox
                           slot="prefix"
                           ?checked=${checked}
-                          @change=${(ev: Event) => this._toggleOptionalField(ev, field, selector)}
+                          @change=${(ev: Event) => this._toggleOptionalField(ev, actionIdx, field, selector)}
                         >
                         </ha-checkbox>
                       `
@@ -334,7 +338,7 @@ export class SchedulerMainPanel extends LitElement {
                   .config=${selector}
                   ?disabled=${!checked}
                   .value=${Object.keys(action.service_data).includes(field) ? action.service_data[field] : undefined}
-                  @value-changed=${(ev: CustomEvent) => this._selectField(field, ev)}
+                  @value-changed=${(ev: CustomEvent) => this._selectField(actionIdx, field, ev)}
                 >
                 </scheduler-combo-selector>
               </scheduler-settings-row>
@@ -345,55 +349,84 @@ export class SchedulerMainPanel extends LitElement {
     `;
   }
 
-  _selectField(field: string, ev: CustomEvent) {
+  _selectField(actionIdx: number, field: string, ev: CustomEvent) {
     const value = ev.detail.value;
 
     const slot: Timeslot = { ...this.schedule.entries[this.selectedEntry!].slots[this.selectedSlot!] };
+    const current = slot.actions[actionIdx];
+    if (!current) return;
     const action: Action =
       value !== undefined
         ? {
-          ...slot.actions[0],
+          ...current,
           service_data: {
-            ...slot.actions[0].service_data,
+            ...current.service_data,
             [field]: value,
           },
         }
         : {
-          ...slot.actions[0],
-          service_data: Object.fromEntries(
-            Object.entries(slot.actions[0].service_data).filter(([key]) => key != field)
-          ),
+          ...current,
+          service_data: Object.fromEntries(Object.entries(current.service_data).filter(([key]) => key != field)),
         };
-    this._updateSlot({ actions: [action] });
+    this._updateAction(actionIdx, action);
   }
 
-  _toggleOptionalField(ev: Event, field: string, selector: Selector) {
+  _toggleOptionalField(ev: Event, actionIdx: number, field: string, selector: Selector) {
     const checked = (ev.target as HTMLInputElement).checked;
     const value = checked ? defaultSelectorValue(selector) : undefined;
     if (checked) {
       this._selectField(
+        actionIdx,
         field,
         new CustomEvent('value-changed', { detail: { value: isDefined(value) ? value : null } })
       );
     } else {
-      this._selectField(field, new CustomEvent('value-changed', { detail: { value: undefined } }));
+      this._selectField(actionIdx, field, new CustomEvent('value-changed', { detail: { value: undefined } }));
     }
   }
 
-  _selectEntity(ev: CustomEvent) {
+  _selectEntity(ev: CustomEvent, actionIdx: number) {
     const entity = ev.detail.value as string | string[] | undefined;
     if (!entity) return;
 
     this.schedule.entries[this.selectedEntry!].slots.forEach((slot, idx) => {
-      if (!slot.actions.length) return;
+      if (!slot.actions[actionIdx]) return;
       const action: Action = {
-        ...slot.actions[0],
+        ...slot.actions[actionIdx],
         target: {
           entity_id: entity,
         },
       };
-      this._updateSlot({ actions: [action] }, idx);
+      const actions = [...slot.actions];
+      actions[actionIdx] = action;
+      this._updateSlot({ actions: actions }, idx);
     });
+  }
+
+  _updateAction(actionIdx: number, action: Action) {
+    const slot = this.schedule.entries[this.selectedEntry!].slots[this.selectedSlot!];
+    const actions = [...slot.actions];
+    actions[actionIdx] = action;
+    this._updateSlot({ actions: actions });
+  }
+
+  _addAction(action: Action) {
+    const slot = this.schedule.entries[this.selectedEntry!].slots[this.selectedSlot!];
+    this._updateSlot({ actions: [...slot.actions, action] });
+  }
+
+  _removeAction(actionIdx: number) {
+    const slot = this.schedule.entries[this.selectedEntry!].slots[this.selectedSlot!];
+    this._updateSlot({ actions: slot.actions.filter((_e, i) => i !== actionIdx) });
+  }
+
+  _findInheritedTarget(actionIdx: number | null): Action['target'] | undefined {
+    const slots = this.schedule.entries[this.selectedEntry!].slots;
+    for (const slot of slots) {
+      const action = actionIdx !== null && slot.actions[actionIdx] ? slot.actions[actionIdx] : slot.actions[0];
+      if (action && action.target?.entity_id) return action.target;
+    }
+    return undefined;
   }
 
   _handleUpdate(ev: CustomEvent, entry: number) {
@@ -451,7 +484,7 @@ export class SchedulerMainPanel extends LitElement {
     });
   }
 
-  async _showActionDialog(ev: Event) {
+  async _showActionDialog(ev: Event, target: ActionDialogTarget) {
     let filteredDomains: string[] = [];
     let filteredEntities: string[] = [];
 
@@ -485,24 +518,22 @@ export class SchedulerMainPanel extends LitElement {
       });
     }).then((res: Action | null) => {
       if (!res) return;
-      const slot: Timeslot = { ...this.schedule.entries[this.selectedEntry!].slots[this.selectedSlot!] };
-      const target = this.schedule.entries[this.selectedEntry!].slots.find((e) =>
-        e.actions.length ? e.actions[0].target?.entity_id : undefined
-      );
       let action = { ...res };
-      if (target && action.target) action = { ...action, target: target.actions[0].target };
-      this._updateSlot({ actions: [action] });
+      const inherited = this._findInheritedTarget(target.mode === 'change' ? target.index : null);
+      if (inherited && action.target) action = { ...action, target: inherited };
+      if (target.mode === 'change') this._updateAction(target.index, action);
+      else this._addAction(action);
     });
   }
 
-  _actionItemOptionsClick(ev: CustomEvent) {
+  _actionItemOptionsClick(ev: CustomEvent, actionIdx: number) {
     const option: 'delete' | 'change_type' = ev.detail.item.value;
     switch (option) {
       case 'change_type':
-        this._showActionDialog(ev);
+        this._showActionDialog(ev, { mode: 'change', index: actionIdx });
         break;
       case 'delete':
-        this._updateSlot({ actions: [] });
+        this._removeAction(actionIdx);
         break;
     }
   }
@@ -593,6 +624,12 @@ export class SchedulerMainPanel extends LitElement {
       }
       div.slot-placeholder {
         padding: 20px 0px 0px 0px;
+      }
+      div.action-add {
+        display: flex;
+        justify-content: flex-start;
+        margin-top: 4px;
+        padding: 4px 0px;
       }
       scheduler-collapsible-section .header ha-icon {
         margin-right: 6px;

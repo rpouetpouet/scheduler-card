@@ -104,7 +104,8 @@ export class SchedulerTimeslotEditor extends LitElement {
 
     return slots.map((slot, i) => {
       const actionText = slot.actions.length
-        ? formatActionDisplay(slot.actions[0], this.hass, this.config.customize, true, true)
+        ? formatActionDisplay(slot.actions[0], this.hass, this.config.customize, true, true) +
+          (slot.actions.length > 1 ? ` +${slot.actions.length - 1}` : '')
         : '';
 
       const textWidth = actionText.length * 5 + 10;
