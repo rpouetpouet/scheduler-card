@@ -32,6 +32,7 @@ interface LegacyCondition {
 export interface LegacyTimeslot {
   start: string;
   stop?: string;
+  weekdays?: WeekdayType[];
   conditions?: LegacyCondition[];
   condition_type?: 'or' | 'and';
   track_conditions?: boolean;
@@ -80,6 +81,7 @@ const parseTimeslot = (input: LegacyTimeslot): Timeslot => {
   return <Timeslot>{
     start: input.start,
     stop: input.stop,
+    weekdays: input.weekdays?.length ? input.weekdays.map(parseWeekdays) : undefined,
     actions: computeUniqueActions(input.actions.map(parseAction)),
     conditions: <ConditionConfig>{
       type: input.condition_type == 'and' ? TConditionLogicType.And : TConditionLogicType.Or,

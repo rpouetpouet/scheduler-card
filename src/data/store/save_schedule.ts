@@ -69,6 +69,7 @@ const parseTimeslot = (input: Timeslot): LegacyTimeslot => {
   return <LegacyTimeslot>{
     start: input.start,
     stop: input.stop,
+    weekdays: input.weekdays?.length ? input.weekdays.map(parseWeekdays) : undefined,
     actions: input.actions.map((e) => parseAction(e)).flat(),
     condition_type: input.conditions.items.length
       ? input.conditions.type == TConditionLogicType.And

@@ -1,7 +1,7 @@
 import { LitElement, html, css, CSSResultGroup } from 'lit';
 import { property, customElement, state } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
-import { CardConfig, ScheduleEntry, Time, TimeMode } from '../types';
+import { CardConfig, ScheduleEntry, TWeekday, Time, TimeMode, Timeslot } from '../types';
 import { mdiUnfoldMoreVertical } from '@mdi/js';
 import { roundTime } from '../data/time/round_time';
 import { timeToString } from '../data/time/time_to_string';
@@ -103,10 +103,12 @@ export class SchedulerTimeslotEditor extends LitElement {
     const slotWidths = this.computeSlotWidths();
 
     return slots.map((slot, i) => {
+      const dayMask = this.computeWeekdayMask(slot);
       const actionText = slot.actions.length
         ? formatActionDisplay(slot.actions[0], this.hass, this.config.customize, true, true) +
-          (slot.actions.length > 1 ? ` +${slot.actions.length - 1}` : '')
-        : '';
+          (slot.actions.length > 1 ? ` +${slot.actions.length - 1}` : '') +
+          (dayMask ? ` ${dayMask}` : '')
+        : dayMask;
 
       const textWidth = actionText.length * 5 + 10;
       const leftMargin = i > 0 ? 15 : 0;
@@ -118,6 +120,7 @@ export class SchedulerTimeslotEditor extends LitElement {
         <div
           class="slot ${this.selectedSlot == i ? 'selected' : ''} ${slot.actions.length ? '' : 'empty'} ${slot.stop === undefined ? 'short' : ''}"
           style="${styleMap({ width: `${slotWidths[i]}px` })}"
+          title="${dayMask ? `${slot.start} - ${slot.stop || slot.start} (${dayMask})` : ''}"
           @click=${this._toggleSelectTimeslot}
           idx="${i}"
         >
@@ -130,8 +133,12 @@ export class SchedulerTimeslotEditor extends LitElement {
                 ? html`<span style="margin-left: ${leftMargin}px; margin-right: ${rightMargin}px">${actionText}</span>`
                 : slotWidth > 16
                   ? html`<ha-icon icon="${computeActionIcon(slot.actions[0], this.config.customize)}"></ha-icon>`
-                  : ''
-              : ''
+                  : dayMask
+                    ? html`<span class="day-mask">${dayMask}</span>`
+                    : ''
+              : dayMask
+                ? html`<span class="day-mask">${dayMask}</span>`
+                : ''
           }
         </div>
         ${
@@ -155,6 +162,36 @@ export class SchedulerTimeslotEditor extends LitElement {
         }
       `;
     });
+  }
+
+  computeWeekdayMask(slot: Timeslot): string {
+    const weekdays = slot.weekdays;
+    if (!weekdays?.length) return '';
+    const order = [
+      TWeekday.Monday,
+      TWeekday.Tuesday,
+      TWeekday.Wednesday,
+      TWeekday.Thursday,
+      TWeekday.Friday,
+      TWeekday.Saturday,
+      TWeekday.Sunday,
+    ];
+    const set = new Set(weekdays);
+    let formatter: Intl.DateTimeFormat | undefined;
+    try {
+      formatter = new Intl.DateTimeFormat(this.hass.locale.language, { weekday: 'short' });
+    } catch (e: any) {
+      formatter = undefined;
+    }
+    // 2024-01-01 is a Monday
+    const monday = Date.UTC(2024, 0, 1);
+    const letters = order.map((_day, idx) => {
+      if (!formatter) return '#';
+      const label = formatter.format(new Date(monday + idx * 86400000));
+      const cleaned = label.replace(/[^\p{L}]/gu, '');
+      return (cleaned.charAt(0) || '#').toLowerCase();
+    });
+    return order.map((day, idx) => (set.has(day) ? letters[idx] : '-')).join('');
   }
 
   computeSlotWidths() {
@@ -392,6 +429,12 @@ export class SchedulerTimeslotEditor extends LitElement {
       }
       .slot.empty.selected:hover {
         border: 3px solid rgba(var(--rgb-secondary-text-color), 1);
+      }
+      .slot .day-mask {
+        font-size: 10px;
+        letter-spacing: -0.5px;
+        opacity: 0.85;
+        font-family: var(--code-font-family, monospace);
       }
       .slot .marker {
         width: 24px;

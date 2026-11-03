@@ -32,6 +32,8 @@ export interface ConditionConfig {
 export interface Timeslot {
   start: string;
   stop?: string;
+  /** days this timeslot applies to; absent = the days of the schedule */
+  weekdays?: TWeekday[];
   actions: Action[];
   conditions: ConditionConfig;
 }

@@ -1,4 +1,5 @@
 import {
+  mdiCalendarWeek,
   mdiChevronLeft,
   mdiChevronRight,
   mdiDotsVertical,
@@ -214,8 +215,45 @@ export class SchedulerMainPanel extends LitElement {
             </div>`
         : ''
       }
+      ${this.viewMode == EditorMode.Scheme ? this._renderSlotWeekdays(slot) : ''}
       ${localize('ui.panel.editor.action', this.hass)}: ${this._renderActionConfig()}
     `;
+  }
+
+  _renderSlotWeekdays(slot: Timeslot) {
+    const weekdays = slot.weekdays?.length ? slot.weekdays : [TWeekday.Daily];
+    return html`
+      <scheduler-settings-row>
+        <span slot="heading">${localize('ui.panel.editor.repeated_days', this.hass)}</span>
+        <ha-button appearance="plain" @click=${this._showSlotWeekdayDialog}>
+          <ha-icon slot="start" icon="mdi:calendar-week"></ha-icon>
+          ${formatWeekdayDisplay(weekdays, 'short', this.hass)}
+        </ha-button>
+      </scheduler-settings-row>
+    `;
+  }
+
+  async _showSlotWeekdayDialog(ev: Event) {
+    const slot = this.schedule.entries[this.selectedEntry!].slots[this.selectedSlot!];
+    const current = slot.weekdays?.length ? [...slot.weekdays] : [TWeekday.Daily];
+    await new Promise<TWeekday[] | null>((resolve) => {
+      const params: DialogSelectWeekdayParams = {
+        weekdays: current,
+        cancel: () => resolve(null),
+        confirm: (out) => resolve(out),
+      };
+
+      fireEvent(ev.target as HTMLElement, 'show-dialog', {
+        dialogTag: 'dialog-select-weekdays',
+        dialogImport: () => import('./dialog-select-weekdays'),
+        dialogParams: params,
+      });
+    }).then((res: TWeekday[] | null) => {
+      if (!res) return;
+      // "every day" or all 7 days = no restriction, the timeslot follows the schedule
+      const weekdays = res.includes(TWeekday.Daily) || res.length === 7 ? undefined : res;
+      this._updateSlot({ weekdays: weekdays });
+    });
   }
 
   _renderActionConfig() {
