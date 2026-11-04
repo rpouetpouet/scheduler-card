@@ -178,13 +178,19 @@ export class DialogSchedulerEditor extends LitElement {
   }
 
   _updateSchedule(ev: CustomEvent) {
-    const changedProps = Object.keys(ev.detail);
+    // Un `change` DOM natif (relayé par webawesome depuis un <input>) n'a pas de
+    // `detail`. Sans ce garde, `Object.keys(undefined)` lève un TypeError : le
+    // dialogue garde alors un état obsolète, et l'enregistrement qui suit peut
+    // perdre le nom du schedule (constaté : name → null en base).
+    const detail = ev.detail;
+    if (!detail || typeof detail !== 'object') return;
+    const changedProps = Object.keys(detail);
     if (changedProps.includes('schedule')) {
-      const schedule = ev.detail.schedule;
+      const schedule = detail.schedule;
       this.schedule = schedule;
     }
     if (changedProps.includes('selectedSlot')) {
-      this.selectedSlot = ev.detail.selectedSlot;
+      this.selectedSlot = detail.selectedSlot;
     }
   }
 
